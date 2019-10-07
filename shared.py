@@ -1,0 +1,21 @@
+# Board Constant
+SNONE  = 0
+SBLACK = 1
+SWHITE = 2
+DRAW = 3
+
+# Screen Constant
+SQUARE_SIZE = 100
+FRAME_THICKNESS = 1
+RADIUS = int(SQUARE_SIZE/2 - 6)
+
+RED = (255, 0, 0)
+GREEN = (0, 255, 0)
+BLUE = (0, 0, 255)
+BLACK = (0, 0, 0)
+WHITE = (255, 255, 255)
+
+# Othello Constant
+COLUMN_COUNT = 8
+ROW_COUNT = 8
+SIZE = COLUMN_COUNT * ROW_COUNT
