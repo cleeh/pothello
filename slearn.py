@@ -61,6 +61,16 @@ class brain:
 		self.sess = tf.Session()
 		self.saver = tf.train.Saver(max_to_keep=SAVE_MAX_TO_KEEP)
 
+	def predict(self, state):
+		# reshape
+		state = np.reshape(state, [-1, COLUMN_COUNT, ROW_COUNT, FACTORS])
+
+		# predict
+		output = self.sess.run(self.y_conv, feed_dict={self.input:state, self.keep_prob:1.0})
+		prediction = output.argmax()
+
+		return {'x':int(prediction%COLUMN_COUNT), 'y':int(prediction/COLUMN_COUNT)}
+
 	def train(self, state, action):
 		# reshape
 		state = np.reshape(state, [-1, COLUMN_COUNT, ROW_COUNT, FACTORS])
@@ -83,6 +93,6 @@ class brain:
 	def restore(self, step=0):
 		#if os.path.exists(MODEL_PATH + '.meta'):
 		if step > 0:
-			self.saver.restore(self.sess, MODEL_PATH)
+			self.saver.restore(self.sess, MODEL_PATH+'-'+str(step))
 		else:
 			self.saver.restore(self.sess, tf.train.latest_checkpoint(MODEL_DIRECTORY))

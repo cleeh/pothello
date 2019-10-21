@@ -20,6 +20,66 @@ if __name__ == '__main__':
 	cnn = brain()
 	cnn.init()
 
+	# Random vs AI
+	vcount = {'b':0, 'w':0, 'd':0}
+	pcount = {'correct':0, 'fail':0}
+	cnn.restore()
+	while not game_quit:
+		spot = None
+		# auto_put
+		if game.turn == SBLACK:
+			spot = game.auto_put()
+		# supervised-learned AI
+		elif game.turn == SWHITE:
+			state = game.feature_spots()
+			spot = cnn.predict(state)
+			if game.verify(spot['x'], spot['y']):
+				pcount['correct'] += 1
+				game.put(spot['x'], spot['y'])
+			else:
+				pcount['fail'] += 1
+				spot = game.auto_put()
+		# error
+		else:
+			raise RuntimeError('unknown turn state')
+
+		# update game state
+		game.occupy(spot['x'], spot['y'])
+		game.change_turn()
+
+		# check victory
+		victor = game.check_victory()
+		if victor==SBLACK:
+			vcount['b'] += 1
+			#print('<game over> random win')
+		elif victor==SWHITE:
+			vcount['w'] += 1
+			#print('<game over> AI win')
+		elif victor==DRAW:
+			vcount['d'] += 1
+			#print('<game over> draw')
+		if victor==SBLACK or victor==SWHITE or victor==DRAW:
+			game_sequence += 1
+			game.reset()
+			if game_sequence%100 == 0:
+				print('#---------- <{0}> statistics ----------#'.format(game_sequence))
+				print('<AI> accuracy: {0}'.format((pcount['correct']/(pcount['correct']+pcount['fail']))*100))
+				print('<AI> victory count: {0}'.format(vcount['w']/game_sequence))
+				print('<AI> lose count: {0}'.format(vcount['b']/game_sequence))
+				print('<AI> Draw: {0}'.format(vcount['d']/game_sequence))
+		
+		# check putable
+		if game.check_putable() == False:
+			#print('# turn is omitted')
+			game.change_turn()
+
+		# show game
+		#game.update()
+		#game.show()
+
+
+
+	''' supervised-learning
 	# Train start
 	omit_flag = False
 	while not game_quit:
@@ -60,6 +120,7 @@ if __name__ == '__main__':
 		if victor != SNONE:
 			game.reset()
 			game.log = []
+	'''
 
 
 
