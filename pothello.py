@@ -8,10 +8,9 @@ from slearn import *
 <legal> (1) yes, no
 <capturesize> (8) east, west, south, north, northern-east, northern-west, southern-east, southern-west
 '''
-class pothello(othello, brain):
+class pothello(othello):
 	def __init__(self):
 		othello.__init__(self)
-		brain.__init__(self)
 		self.log = []
 
 	def record(self, x, y, omit=False, color = None):
@@ -19,7 +18,6 @@ class pothello(othello, brain):
 			color = self.turn
 		elif color!=SBLACK or color!=SWHITE:
 			raise RuntimeError('unknown turn state')
-
 		self.log.append({'x':x, 'y':y, 'turn':color, 'omit':omit})
 
 	def count_occupied(self, x, y, color = None):
@@ -108,7 +106,22 @@ class pothello(othello, brain):
 					break
 		return result
 
+	def check_liberty(self, x, y):
+		if x>=0 and x<self.width and y>=0 and y<self.height:
+			stone = self.get(x, y)
+			if stone==SBLACK or stone==SWHITE:
+				return 1
+			elif stone==SNONE:
+				return 0
+			else:
+				raise RuntimeError('unknown stone state')
+		else:
+			return 0
+
 	def feature_spot(self, x, y):
+		if x<0 or x>=self.width or y<0 or y>=self.height:
+			raise RuntimeError('out of board access')
+
 		flist = np.zeros(FACTORS)
 
 		# stone color
@@ -121,27 +134,46 @@ class pothello(othello, brain):
 		else:
 			raise RuntimeError('unknown stone state')
 
+		# ones
+		flist[3] = 1
+
 		# edge
 		if (x==0 or x==ROW_COUNT-1) and (y==0 or y==COLUMN_COUNT-1):
-			flist[3] = 1
+			flist[4] = 1
 		# side
 		elif x==0 or y==0 or x==ROW_COUNT-1 or y==COLUMN_COUNT-1:
-			flist[4] = 1
+			flist[5] = 1
+		# internal
+		else:
+			flist[6] = 1
 
 		# legal
 		if self.verify(x, y):
-			flist[5] = 1
+			flist[7] = 1
 
 		# capture size
 		olist = self.count_occupied(x, y)
-		flist[6] = olist['e']
-		flist[7] = olist['w']
-		flist[8] = olist['s']
-		flist[9] = olist['n']
-		flist[10] = olist['ne']
-		flist[11] = olist['nw']
-		flist[12] = olist['se']
-		flist[13] = olist['sw']
+		flist[8] = olist['e']
+		flist[9] = olist['w']
+		flist[10] = olist['s']
+		flist[11] = olist['n']
+		flist[12] = olist['ne']
+		flist[13] = olist['nw']
+		flist[14] = olist['se']
+		flist[15] = olist['sw']
+
+		# liberties
+		flist[16] = self.check_liberty(x, y+1)
+		flist[17] = self.check_liberty(x+1, y+1)
+		flist[18] = self.check_liberty(x+1, y)
+		flist[19] = self.check_liberty(x+1, y-1)
+		flist[20] = self.check_liberty(x, y-1)
+		flist[21] = self.check_liberty(x-1, y-1)
+		flist[22] = self.check_liberty(x-1, y)
+		flist[23] = self.check_liberty(x-1, y+1)
+
+		# zeros
+		flist[24] = 0
 
 		return flist
 

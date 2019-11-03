@@ -1,98 +1,89 @@
-import tensorflow as tf
-import numpy as np
+import os
 import math
+import numpy as np
+import tensorflow as tf
+import keras
+from keras.layers import Activation, BatchNormalization, Conv2D, Input, Dense, Flatten, Softmax
+from keras.models import Model, Sequential, load_model
+from keras.optimizers import SGD
+from keras.utils import to_categorical
 
 from shared import *
 
 class brain:
 	def __init__(self):
 		#-------------------- Model --------------------#
-		# Placeholder
-		self.input = tf.placeholder(tf.float32, shape=[None, COLUMN_COUNT, ROW_COUNT, FACTORS])
-		self.target = tf.placeholder(tf.float32, shape=[None, OUTPUTS])
-		self.keep_prob = tf.placeholder(tf.float32)
+		inputs = Input(shape=(COLUMN_COUNT, ROW_COUNT, FACTORS))
 
-		# Convolution
-		w1 = tf.Variable(tf.truncated_normal(shape=[7, 7, FACTORS, HIDDEN1], stddev=0.01), name='w1')
-		b1 = tf.Variable(tf.constant(0.1, shape=[HIDDEN1]), dtype=tf.float32, name='b1')
-		h1 = tf.nn.relu(tf.nn.conv2d(self.input ,w1, strides=[1, 1, 1, 1], padding='SAME') + b1)
-		p1 = tf.nn.max_pool(h1, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+		x = self.conv_block(inputs)
+		for i in range(RESIDUALS):
+			x = self.residual_block(x)
+		policy_out = self.policy_head(x)
+		value_head = self.value_head(x)
 
-		w2 = tf.Variable(tf.truncated_normal(shape=[5, 5, HIDDEN1, HIDDEN2], stddev=0.01), name='w2')
-		b2 = tf.Variable(tf.constant(0.1, shape=[HIDDEN2]), dtype=tf.float32, name='b2')
-		h2 = tf.nn.relu(tf.nn.conv2d(p1 ,w2, strides=[1, 1, 1, 1], padding='SAME') + b2)
-		p2 = tf.nn.max_pool(h2, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+		self.model = Model(inputs=[inputs], outputs=[policy_out])
+		self.model.compile(optimizer=SGD(lr=LEARNING_RATE), loss='categorical_crossentropy', metrics=['accuracy'])
 
-		w3 = tf.Variable(tf.truncated_normal(shape=[3, 3, HIDDEN2, HIDDEN3], stddev=0.01), name='w3')
-		b3 = tf.Variable(tf.constant(0.1, shape=[HIDDEN3]), dtype=tf.float32, name='b3')
-		h3 = tf.nn.relu(tf.nn.conv2d(p2 ,w3, strides=[1, 1, 1, 1], padding='SAME') + b3)
-		p3 = tf.nn.max_pool(h3, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+	def conv_block(self, x):
+		y = Conv2D(HIDDENS, (3, 3), padding='same')(x)
+		y = BatchNormalization()(y)
+		y = Activation('relu')(y)
+		return y
 
-		w4 = tf.Variable(tf.truncated_normal(shape=[1, 1, HIDDEN3, HIDDEN4], stddev=0.01), name='w4')
-		b4 = tf.Variable(tf.constant(0.1, shape=[HIDDEN4]), dtype=tf.float32, name='b4')
-		h4 = tf.nn.relu(tf.nn.conv2d(p3 ,w4, strides=[1, 1, 1, 1], padding='SAME') + b4)
-		p4 = tf.nn.max_pool(h4, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+	def residual_block(self, x):
+		y = Conv2D(HIDDENS, (3, 3), padding='same')(x)
+		y = BatchNormalization()(y)
+		y = Activation('relu')(y)
+		y = Conv2D(HIDDENS, (3, 3), padding='same')(y)
+		y = BatchNormalization()(y)
+		y = keras.layers.add([x, y])
+		y = Activation('relu')(y)
+		return y
 
-		# Fully-Connected Layer
-		w_fc1 = tf.Variable(tf.truncated_normal(shape=[1 * 1 * HIDDEN4, NEURONS], stddev=0.01), name='w_fc1')
-		b_fc1 = tf.Variable(tf.constant(0.1, shape=[NEURONS]), dtype=tf.float32, name='b_fc1')
-		h_pool2_flat = tf.reshape(p4, [-1, 1 * 1 * HIDDEN3])
-		h_fc1 = tf.nn.relu(tf.matmul(h_pool2_flat, w_fc1) + b_fc1)
+	def policy_head(self, x):
+		y = Conv2D(2, (1, 1), padding='same')(x)
+		y = BatchNormalization()(y)
+		y = Activation('relu')(y)
+		y = Flatten()(y)
+		y = Dense(OUTPUTS, activation='sigmoid')(y)
+		y = Softmax()(y)
+		return y
 
-		# Drop Out
-		h_fc1_drop = tf.nn.dropout(h_fc1, self.keep_prob)
-
-		# Softmax Layer
-		w_fc2 = tf.Variable(tf.truncated_normal(shape=[NEURONS, OUTPUTS]), name='w_fc2')
-		b_fc2 = tf.Variable(tf.constant(0.1, shape=[OUTPUTS]), name='b_fc2')
-
-		self.y_conv = tf.nn.softmax(tf.matmul(h_fc1_drop, w_fc2) + b_fc2)
-
-		#-------------------- Train & Evaluation --------------------#
-		# Train
-		self.cost = tf.reduce_mean(-tf.reduce_sum(self.target * tf.log(self.y_conv), reduction_indices=1))
-		self.optimizer = tf.train.AdamOptimizer(LEARNINGRATE).minimize(self.cost)
-
-		# Evaluation
-		correction = tf.equal(tf.argmax(self.y_conv, 1), tf.argmax(self.target, 1))
-		self.accuracy = tf.reduce_mean(tf.cast(correction, tf.float32))
-
-		#-------------------- Session & Saver --------------------#
-		self.sess = tf.Session()
-		self.saver = tf.train.Saver(max_to_keep=SAVE_MAX_TO_KEEP)
+	def value_head(self, x):
+		y = Conv2D(1, (1, 1), padding='same')(x)
+		y = BatchNormalization()(y)
+		y = Activation('relu')(y)
+		y = Dense(256)(y)
+		y = Activation('relu')(y)
+		y = Dense(1)(y)
+		y = Activation('tanh')(y)
+		return y
 
 	def predict(self, state):
 		# reshape
-		state = np.reshape(state, [-1, COLUMN_COUNT, ROW_COUNT, FACTORS])
+		state = np.reshape(state, [1, COLUMN_COUNT, ROW_COUNT, FACTORS])
 
 		# predict
-		output = self.sess.run(self.y_conv, feed_dict={self.input:state, self.keep_prob:1.0})
-		prediction = output.argmax()
+		prediction = self.model.predict(state)
+		prediction = prediction.argmax()
 
-		return {'x':int(prediction%COLUMN_COUNT), 'y':int(prediction/COLUMN_COUNT)}
+		return {'x':int(prediction%COLUMN_COUNT), 'y':int(prediction/COLUMN_COUNT)} 
 
-	def train(self, state, action):
+	def train(self, state, action, epoch=2):
 		# reshape
 		state = np.reshape(state, [-1, COLUMN_COUNT, ROW_COUNT, FACTORS])
+		action = to_categorical(action, OUTPUTS)
+		action = np.reshape(action, [-1, OUTPUTS])
 
-		# label
-		label = np.zeros((1, SIZE), dtype=float)
-		label[0][action] = 1.0
-
-		# train
-		output, _, train_accuracy = self.sess.run([self.y_conv, self.optimizer, self.accuracy], feed_dict={self.input:state, self.target:label, self.keep_prob:1.0})
-		#print("training accuracy {0}".format(train_accuracy))
-
-	def init(self):
-		self.sess.run(tf.global_variables_initializer())
+		hist = self.model.fit(state, action, epochs=epoch)
+		print(hist.history)
 
 	def save(self, step=0):
-		ckpt_path = self.saver.save(self.sess, MODEL_PATH, global_step=step, write_meta_graph=False)
-		print('saved ckpt file:', ckpt_path)
+		self.model.save(SUPERVISED_MODEL_NAME + SEPERATOR + str(step) + MODEL_FORMAT)
+		print('{0} is saved'.format(SUPERVISED_MODEL_NAME + SEPERATOR + str(step) + MODEL_FORMAT))
 
 	def restore(self, step=0):
-		#if os.path.exists(MODEL_PATH + '.meta'):
-		if step > 0:
-			self.saver.restore(self.sess, MODEL_PATH+'-'+str(step))
+		if os.path.exists(SUPERVISED_MODEL_NAME + SEPERATOR + str(step) + MODEL_FORMAT):
+			self.model = load_model(SUPERVISED_MODEL_NAME + SEPERATOR + str(step) + MODEL_FORMAT)
 		else:
-			self.saver.restore(self.sess, tf.train.latest_checkpoint(MODEL_DIRECTORY))
+			raise RuntimeError("no model named '{0}'".format(SUPERVISED_MODEL_NAME + SEPERATOR + str(step) + MODEL_FORMAT))

@@ -26,7 +26,7 @@ class othello(board, palette):
 		elif self.turn == SWHITE:
 			self.draw_stone(x, y, WHITE)
 
-	def auto_put(self):
+	def auto_put(self, auto_process=True):
 		list = []
 		for i in range(COLUMN_COUNT):
 			for j in range(ROW_COUNT):
@@ -35,7 +35,8 @@ class othello(board, palette):
 
 		if len(list) > 0:
 			random_spot = list[random.randrange(0, len(list))]
-			self.put(random_spot[0], random_spot[1])
+			if auto_process:
+				self.put(random_spot[0], random_spot[1])
 			return {'x':random_spot[0], 'y':random_spot[1]}
 		else:
 			return None

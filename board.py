@@ -3,7 +3,9 @@ import numpy as np
 from shared import *
 
 class board:
-	def __init__(self):
+	def __init__(self, width=ROW_COUNT, height=COLUMN_COUNT):
+		self.height = height
+		self.width = width
 		self.clear()
 
 	def clear(self):
@@ -15,15 +17,21 @@ class board:
 		self.set(4, 3, SWHITE)
 
 	def set(self, x, y, color=None):
-		if color is None:
-			self.stone[y*COLUMN_COUNT + x] = self.turn
-		elif color is SBLACK:
-			self.stone[y*COLUMN_COUNT + x] = SBLACK
-		elif color is SWHITE:
-			self.stone[y*COLUMN_COUNT + x] = SWHITE
+		if x>=0 and x<self.width and y>=0 and y<self.height:
+			if color is None:
+				self.stone[y*COLUMN_COUNT + x] = self.turn
+			elif color is SBLACK:
+				self.stone[y*COLUMN_COUNT + x] = SBLACK
+			elif color is SWHITE:
+				self.stone[y*COLUMN_COUNT + x] = SWHITE
+		else:
+			raise RuntimeError('access out of board: (x, y)=({0}, {1}) must be in (0~{2}, 0~{3})'.format(x, y, self.width-1, self.height-1))
 
 	def get(self, x, y):
-		return int(self.stone[y*COLUMN_COUNT + x])
+		if x>=0 and x<self.width and y>=0 and y<self.height:
+			return int(self.stone[y*COLUMN_COUNT + x])
+		else:
+			raise RuntimeError('access out of board: (x, y)=({0}, {1}) must be in (0~{2}, 0~{3})'.format(x, y, self.width-1, self.height-1))
 
 	def count(self):
 		black_count = white_count = 0
