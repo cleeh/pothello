@@ -3,17 +3,21 @@ from slearn import *
 
 ''' input feature
 <stone color> (3) none, black, white
+<ones> (1) 1
 <edge> (1) yes, no
 <side> (1) yes, no
+<internal> (1) yes, no
 <legal> (1) yes, no
 <capturesize> (8) east, west, south, north, northern-east, northern-west, southern-east, southern-west
+<liberties> (8) east, west, south, north, northern-east, northern-west, southern-east, southern-west
+<zeros> (1) 0
 '''
 class pothello(othello):
 	def __init__(self):
 		othello.__init__(self)
 		self.log = []
 
-	def record(self, x, y, omit=False, color = None):
+	def record(self, x, y, omit=False, color=None):
 		if color == None:
 			color = self.turn
 		elif color!=SBLACK or color!=SWHITE:

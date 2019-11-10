@@ -8,23 +8,20 @@ from board import *
 from othello import *
 from pothello import *
 from slearn import *
+from rlearn import *
 
 import numpy as np
 
-# 1-Player
-def one_man_game(loading_step=0):
+# 1-Player vs cnn
+def one_man_game(loading_step=10000):
 	# initialize game
 	game_quit = False
 	game_sequence = 0
 	game = pothello()
 
 	# initialize cnn
-	cnn = brain()
-	cnn.init()
-	if loading_step > 0:
-		cnn.restore(loading_step)
-	else:
-		cnn.restore()
+	cnn = sbrain()
+	cnn.restore(loading_step)
 
 	# examine
 	vcount = {'b':0, 'w':0, 'd':0}
@@ -32,9 +29,8 @@ def one_man_game(loading_step=0):
 	while not game_quit:
 		spot = None
 		# player-turn
-		flag = True
 		if game.turn == SBLACK:
-			
+			flag = True
 			while flag:
 				for event in pygame.event.get():
 					if event.type == pygame.QUIT:
@@ -50,16 +46,14 @@ def one_man_game(loading_step=0):
 							break
 						else:
 							continue
-					flag = True
 		# supervised-learned AI
 		elif game.turn == SWHITE:
 			state = game.feature_spots()
 			spot = cnn.predict(state)
-			#print(spot)
 			if game.verify(spot['x'], spot['y']):
-				print('CNN predicted!')
 				pcount['correct'] += 1
 				game.put(spot['x'], spot['y'])
+				print('cnn predicts on ({0}, {1})'.format(spot['x'], spot['y']))
 			else:
 				pcount['fail'] += 1
 				spot = game.auto_put()
@@ -75,13 +69,13 @@ def one_man_game(loading_step=0):
 		victor = game.check_victory()
 		if victor==SBLACK:
 			vcount['b'] += 1
-			#print('<game over> random win')
+			print('<game over> random win')
 		elif victor==SWHITE:
 			vcount['w'] += 1
-			#print('<game over> AI win')
+			print('<game over> AI win')
 		elif victor==DRAW:
 			vcount['d'] += 1
-			#print('<game over> draw')
+			print('<game over> draw')
 		if victor==SBLACK or victor==SWHITE or victor==DRAW:
 			game_sequence += 1
 			game.reset()
@@ -95,6 +89,7 @@ def one_man_game(loading_step=0):
 		if game.check_putable() == False:
 			print('# turn is omitted')
 			game.change_turn()
+
 		game.update()
 
 # 2-Player
@@ -104,8 +99,7 @@ def two_man_game():
 	game_sequence = 0
 
 	game = pothello()
-	cnn = brain()
-	cnn.init()
+	cnn = sbrain()
 
 	# Game start
 	while not game_quit:
@@ -141,7 +135,7 @@ def two_man_game():
 					game.show()
 
 # SL policy network training (random vs random)
-def supervised_learning(batch_size=SAVE_STEPS, notify_sequence=1000):
+def supervised_learning(batch_size=SAVE_STEPS, notify_sequence=100):
 	# initialize game
 	game_sequence = 0
 	game_quit = False
@@ -150,7 +144,7 @@ def supervised_learning(batch_size=SAVE_STEPS, notify_sequence=1000):
 	# initialize cnn
 	state_log = []
 	action_log = []
-	cnn = brain()
+	cnn = sbrain()
 
 	# start training
 	omit_flag = False
@@ -191,7 +185,7 @@ def supervised_learning(batch_size=SAVE_STEPS, notify_sequence=1000):
 				game.change_turn()
 
 			if game_sequence%batch_size == 0:
-				cnn.train(state_log, action_log)
+				cnn.strain(state_log, action_log)
 				state_log = []
 				action_log = []
 
@@ -207,16 +201,102 @@ def supervised_learning(batch_size=SAVE_STEPS, notify_sequence=1000):
 		if game_sequence >= SAVE_STEPS*SAVE_MAX_TO_KEEP:
 			break
 
-# Random vs AI
-def cnn_vs_random(loading_step, attempt_number=200):
+# SL policy network training (random vs random)
+def reinforcement_learning(loading_step, batch_size=(MEMORY_SIZE/SIZE), notify_sequence=100):
 	# initialize game
 	game_sequence = 0
 	game_quit = False
 	game = pothello()
 
 	# initialize cnn
-	cnn = brain()
+	state_log = []
+	action_log = []
+	cnn = rbrain()
 	cnn.restore(loading_step)
+
+	# start training
+	omit_flag = False
+	while not game_quit:
+		# auto_put
+		spot = game.auto_put(False)
+		if spot ==  None:
+			omit_flag = True
+			game.change_turn()
+			continue
+		game.record(spot['x'], spot['y'], omit_flag)
+		game.put(spot['x'], spot['y'])
+		game.occupy(spot['x'], spot['y'])	
+		game.change_turn()
+		omit_flag = False
+
+		# check victory
+		victor = game.check_victory()
+		if victor==SBLACK or victor==SWHITE:
+			game_sequence += 1
+			game.reset()
+
+			if game_sequence%notify_sequence == 0:
+				print('<game sequence> ' + str(game_sequence))
+
+			rlog = []
+			for i in game.log:
+				if i['omit']:
+					game.change_turn()
+
+				if i['turn'] == SWHITE:
+					state = game.feature_spots()
+					action = i['y']*COLUMN_COUNT + i['x']
+					rlog.append({'state':state, 'action':action})
+
+				game.put(i['x'], i['y'])
+				game.occupy(i['x'], i['y'])
+				game.change_turn()
+
+			rlog_size = len(rlog)
+			for i in range(rlog_size):
+				if i < rlog_size-1:  # not done
+					rlog[i]['next_state'] = rlog[i+1]['state']
+					rlog[i]['done'] = False
+					rlog[i]['reward'] = 0
+				else:  # last step
+					rlog[i]['next_state'] = None
+					rlog[i]['done'] = True
+					if victor==SWHITE:
+						rlog[i]['reward'] = REWARD
+					elif victor==SBLACK:
+						rlog[i]['reward'] = PENALTY
+					else:
+						raise RuntimeError('unknown game turn state')
+				cnn.remember(rlog[i]['state'], rlog[i]['action'], rlog[i]['reward'], rlog[i]['next_state'], rlog[i]['done'])
+
+			if game_sequence%int(batch_size/SIZE) == 0:
+				cnn.rtrain(batch_size)
+
+			# save model
+			if game_sequence%SAVE_STEPS == 0:
+				cnn.rsave(game_sequence)
+
+		# reset game
+		if victor != SNONE:
+			game.reset()
+			game.log = []			
+
+		if game_sequence >= SAVE_STEPS*SAVE_MAX_TO_KEEP:
+			break
+
+# Random vs AI
+def cnn_vs_random(loading_step, rlearned=False,attempt_number=200):
+	# initialize game
+	game_sequence = 0
+	game_quit = False
+	game = pothello()
+
+	# initialize cnn
+	cnn = rbrain()
+	if rlearned:
+		cnn.rrestore(loading_step)
+	else:
+		cnn.restore(loading_step)
 
 	# examine
 	vcount = {'b':0, 'w':0, 'd':0}
@@ -236,7 +316,6 @@ def cnn_vs_random(loading_step, attempt_number=200):
 			else:
 				pcount['fail'] += 1
 				spot = game.auto_put()
-				print('auto_put')
 		# error
 		else:
 			raise RuntimeError('unknown turn state')
@@ -274,7 +353,8 @@ def cnn_vs_random(loading_step, attempt_number=200):
 
 
 if __name__ == '__main__':
-	#one_man_game()
+	#one_man_game(loading_step=5000)
 	#two_man_game()
-	#supervised_learning()
-	cnn_vs_random(loading_step=20000, attempt_number=500)
+	#supervised_learning(batch_size=SAVE_STEPS, notify_sequence=100)
+	#reinforcement_learning(loading_step=5000, batch_size=SIZE*40, notify_sequence=100)
+	cnn_vs_random(loading_step=5000, rlearned=False, attempt_number=200)
