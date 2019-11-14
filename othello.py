@@ -165,6 +165,7 @@ class othello(board, palette):
 								self.draw_stone(arg[0], arg[1], BLACK)
 							elif target == SWHITE:
 								self.draw_stone(arg[0], arg[1], WHITE)
+						break
 					else:
 						olist.clear()
 						break

@@ -1,6 +1,7 @@
 import pygame
 import sys
 import tensorflow as tf
+import time
 
 from shared import *
 from palette import *
@@ -14,10 +15,16 @@ import numpy as np
 
 # 1-Player vs cnn
 def one_man_game(loading_step=10000):
+	pygame.display.set_caption('One man game with AI')
+
 	# initialize game
 	game_quit = False
 	game_sequence = 0
 	game = pothello()
+	game.draw_score_board()
+	game.draw_score(0, 0)
+	game.draw_turn(BLACK)
+	game.update()
 
 	# initialize cnn
 	cnn = sbrain()
@@ -38,6 +45,8 @@ def one_man_game(loading_step=10000):
 					if event.type == pygame.MOUSEBUTTONDOWN:
 						col = int(event.pos[1]/SQUARE_SIZE)  # y
 						row = int(event.pos[0]/SQUARE_SIZE)  # x
+						if col >= COLUMN_COUNT or row >= COLUMN_COUNT:
+							continue
 						spot = {'x':row, 'y':col}
 
 						if game.verify(row, col):
@@ -46,17 +55,24 @@ def one_man_game(loading_step=10000):
 							break
 						else:
 							continue
-		# supervised-learned AI
+		# learned AI
 		elif game.turn == SWHITE:
 			state = game.feature_spots()
 			spot = cnn.predict(state)
 			if game.verify(spot['x'], spot['y']):
 				pcount['correct'] += 1
 				game.put(spot['x'], spot['y'])
-				print('cnn predicts on ({0}, {1})'.format(spot['x'], spot['y']))
+				print('AI predicts on ({0}, {1})'.format(spot['x'], spot['y']))
 			else:
 				pcount['fail'] += 1
 				spot = game.auto_put()
+
+			time.sleep(0.8)
+			game.draw_stone(spot['x'], spot['y'], RED)
+			game.update()
+			time.sleep(0.8)
+			game.draw_stone(spot['x'], spot['y'], WHITE)
+			game.update()
 		# error
 		else:
 			raise RuntimeError('unknown turn state')
@@ -64,32 +80,54 @@ def one_man_game(loading_step=10000):
 		# update game state
 		game.occupy(spot['x'], spot['y'])
 		game.change_turn()
+		if game.turn == SBLACK:
+			game.draw_turn(BLACK)
+		elif game.turn == SWHITE:
+			game.draw_turn(WHITE)
+		else:
+			raise RuntimeError('Unknown turn state')
+		game.update()
 
 		# check victory
 		victor = game.check_victory()
 		if victor==SBLACK:
 			vcount['b'] += 1
-			print('<game over> random win')
+			game.change_font(20)
+			game.print_text('black wins!', ROW_COUNT*SQUARE_SIZE+45, 240, RED)
+			print('<game over> black win')
 		elif victor==SWHITE:
 			vcount['w'] += 1
-			print('<game over> AI win')
+			game.change_font(20)
+			game.print_text('white wins!', ROW_COUNT*SQUARE_SIZE+45, 240, RED)
+			print('<game over> white win')
 		elif victor==DRAW:
 			vcount['d'] += 1
+			game.change_font(20)
+			game.print_text('Draw!', ROW_COUNT*SQUARE_SIZE+75, 240, RED)
 			print('<game over> draw')
 		if victor==SBLACK or victor==SWHITE or victor==DRAW:
+			print('(black, white) stones number:', game.count())
 			game_sequence += 1
+			game.update()
+			time.sleep(2)
 			game.reset()
-			print('#---------- <{0}> statistics ----------#'.format(game_sequence))
-			print('<AI> accuracy: {0}'.format((pcount['correct']/(pcount['correct']+pcount['fail']))*100))
-			print('<AI> victory: {0}'.format(vcount['w']/game_sequence*100))
-			print('<AI> lose: {0}'.format(vcount['b']/game_sequence*100))
-			print('<AI> Draw: {0}'.format(vcount['d']/game_sequence*100))
+			game.draw_score(vcount['b'], vcount['w'])
+			pygame.draw.rect(game.screen, BLACK, (SQUARE_SIZE*ROW_COUNT+45, 240, SCORE_BOARD_WIDTH, 30))
 		
 		# check putable
 		if game.check_putable() == False:
-			print('# turn is omitted')
+			game.change_font(19)
+			game.print_text("Turn is omitted!", ROW_COUNT*SQUARE_SIZE+10, COLUMN_COUNT*SQUARE_SIZE-30, RED)
+			game.update()
+			time.sleep(1.5)
+			pygame.draw.rect(game.screen, BLACK, (SQUARE_SIZE*ROW_COUNT+10, COLUMN_COUNT*SQUARE_SIZE-30, SCORE_BOARD_WIDTH, 19*1.5))
 			game.change_turn()
-
+			if game.turn == SBLACK:
+				game.draw_turn(BLACK)
+			elif game.turn == SWHITE:
+				game.draw_turn(WHITE)
+			else:
+				raise RuntimeError('Unknown turn state')
 		game.update()
 
 # 2-Player
@@ -202,7 +240,7 @@ def supervised_learning(batch_size=SAVE_STEPS, notify_sequence=100):
 			break
 
 # SL policy network training (random vs random)
-def reinforcement_learning(loading_step, batch_size=(MEMORY_SIZE/SIZE), notify_sequence=100):
+def reinforcement_learning(loading_step, loading_step_vs, batch_size=(MEMORY_SIZE/SIZE), notify_sequence=100):
 	# initialize game
 	game_sequence = 0
 	game_quit = False
@@ -211,8 +249,10 @@ def reinforcement_learning(loading_step, batch_size=(MEMORY_SIZE/SIZE), notify_s
 	# initialize cnn
 	state_log = []
 	action_log = []
-	cnn = rbrain()
+	cnn = sbrain()
+	enemy = sbrain()
 	cnn.restore(loading_step)
+	enemy.restore(loading_step_vs)
 
 	# start training
 	omit_flag = False
@@ -238,43 +278,28 @@ def reinforcement_learning(loading_step, batch_size=(MEMORY_SIZE/SIZE), notify_s
 			if game_sequence%notify_sequence == 0:
 				print('<game sequence> ' + str(game_sequence))
 
-			rlog = []
 			for i in game.log:
 				if i['omit']:
-					game.change_turn()
+						game.change_turn()
 
-				if i['turn'] == SWHITE:
+				if i['turn'] == victor:
 					state = game.feature_spots()
 					action = i['y']*COLUMN_COUNT + i['x']
-					rlog.append({'state':state, 'action':action})
+					state_log.append(state)
+					action_log.append(action)
 
 				game.put(i['x'], i['y'])
 				game.occupy(i['x'], i['y'])
 				game.change_turn()
 
-			rlog_size = len(rlog)
-			for i in range(rlog_size):
-				if i < rlog_size-1:  # not done
-					rlog[i]['next_state'] = rlog[i+1]['state']
-					rlog[i]['done'] = False
-					rlog[i]['reward'] = 0
-				else:  # last step
-					rlog[i]['next_state'] = None
-					rlog[i]['done'] = True
-					if victor==SWHITE:
-						rlog[i]['reward'] = REWARD
-					elif victor==SBLACK:
-						rlog[i]['reward'] = PENALTY
-					else:
-						raise RuntimeError('unknown game turn state')
-				cnn.remember(rlog[i]['state'], rlog[i]['action'], rlog[i]['reward'], rlog[i]['next_state'], rlog[i]['done'])
-
-			if game_sequence%int(batch_size/SIZE) == 0:
-				cnn.rtrain(batch_size)
+			if game_sequence%batch_size == 0:
+				cnn.strain(state_log, action_log)
+				state_log = []
+				action_log = []
 
 			# save model
 			if game_sequence%SAVE_STEPS == 0:
-				cnn.rsave(game_sequence)
+				cnn.save(game_sequence)
 
 		# reset game
 		if victor != SNONE:
@@ -353,8 +378,8 @@ def cnn_vs_random(loading_step, rlearned=False,attempt_number=200):
 
 
 if __name__ == '__main__':
-	#one_man_game(loading_step=5000)
+	one_man_game(loading_step=5000)
 	#two_man_game()
 	#supervised_learning(batch_size=SAVE_STEPS, notify_sequence=100)
 	#reinforcement_learning(loading_step=5000, batch_size=SIZE*40, notify_sequence=100)
-	cnn_vs_random(loading_step=5000, rlearned=False, attempt_number=200)
+	#cnn_vs_random(loading_step=5000, rlearned=False, attempt_number=1000)

@@ -22,7 +22,7 @@ class sbrain:
 		policy_out = self.policy_head(x)
 		value_out = self.value_head(x)
 
-		self.model = Model(inputs=[inputs], outputs=[policy_out, value_out])
+		self.model = Model(inputs=[inputs], outputs=[policy_out])
 		self.model.compile(optimizer=SGD(lr=LEARNING_RATE), loss='mean_squared_error', metrics=['accuracy'])
 
 	def conv_block(self, x):
